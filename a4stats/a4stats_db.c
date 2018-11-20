@@ -1,5 +1,7 @@
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdarg.h>
+#include <string.h>
 #include "../lib/version.h"
 #include "../dbapi2/dbapi2.h"
 #include "../core/error.h"
@@ -13,6 +15,9 @@
 #define CLEANUP_INTERVAL 86400 /* db cleanup interval (in seconds) */
 #define CLEANUP_INACTIVE_DAYS 30 /* disable channels where nothing happened for this many days */
 #define CLEANUP_DELETE_DAYS 5 /* delete data for channels that have been disabled for this many days */
+
+#define A4STATS_DB_TOLOWER(x) "translate(lower(" x "), '[]\\~', '{}|^')"
+#define A4STATS_DB_EQ_NOCASE(x, y) A4STATS_DB_TOLOWER(x) " = " A4STATS_DB_TOLOWER(y)
 
 MODULE_VERSION("");
 
@@ -38,14 +43,14 @@ static int a4stats_connectdb(void) {
     "CREATE TABLE ? (channelid INT, kicker VARCHAR(128), kickerid INT, victim VARCHAR(128), victimid INT, timestamp INT, reason VARCHAR(256),"
     "FOREIGN KEY (channelid) REFERENCES ? (id) ON DELETE CASCADE)", "TT", "kicks", "channels");
 
-  a4statsdb->squery(a4statsdb, "CREATE INDEX kicks_channelid_index ON ? (channelid)", "T", "kicks");
-  a4statsdb->squery(a4statsdb, "CREATE INDEX kicks_timestamp_index ON ? (timestamp)", "T", "kicks");
+  a4statsdb->createtable(a4statsdb, NULL, NULL, "CREATE INDEX kicks_channelid_index ON ? (channelid)", "T", "kicks");
+  a4statsdb->createtable(a4statsdb, NULL, NULL, "CREATE INDEX kicks_timestamp_index ON ? (timestamp)", "T", "kicks");
 
   a4statsdb->createtable(a4statsdb, NULL, NULL,
     "CREATE TABLE ? (channelid INT, setby VARCHAR(128), setbyid INT, timestamp INT, topic VARCHAR(512),"
     "FOREIGN KEY (channelid) REFERENCES ? (id) ON DELETE CASCADE)", "TT", "topics", "channels");
 
-  a4statsdb->squery(a4statsdb, "CREATE INDEX topics_channelid_index ON ? (channelid)", "T", "topics");
+  a4statsdb->createtable(a4statsdb, NULL, NULL, "CREATE INDEX topics_channelid_index ON ? (channelid)", "T", "topics");
 
   a4statsdb->createtable(a4statsdb, NULL, NULL,
     "CREATE TABLE ? (channelid INT, account VARCHAR(128), accountid INT, seen INT DEFAULT 0, rating INT DEFAULT 0, lines INT DEFAULT 0, chars INT DEFAULT 0, words INT DEFAULT 0, "
@@ -57,18 +62,18 @@ static int a4stats_connectdb(void) {
     "slaps INT DEFAULT 0, slapped INT DEFAULT 0, highlights INT DEFAULT 0, kicks INT DEFAULT 0, kicked INT DEFAULT 0, ops INT DEFAULT 0, deops INT DEFAULT 0, actions INT DEFAULT 0, skitzo INT DEFAULT 0, foul INT DEFAULT 0, "
     "firstseen INT DEFAULT 0, curnick VARCHAR(16), FOREIGN KEY (channelid) REFERENCES ? (id) ON DELETE CASCADE)", "TT", "users", "channels");
 
-  a4statsdb->squery(a4statsdb, "CREATE INDEX users_account_index ON ? (account)", "T", "users");
-  a4statsdb->squery(a4statsdb, "CREATE INDEX users_accountid_index ON ? (accountid)", "T", "users");
-  a4statsdb->squery(a4statsdb, "CREATE INDEX users_channelid_index ON ? (channelid)", "T", "users");
-  a4statsdb->squery(a4statsdb, "CREATE UNIQUE INDEX users_channelid_account_accountid_index ON ? (channelid, account, accountid)", "T", "users");
-  a4statsdb->squery(a4statsdb, "CREATE INDEX users_channelid_lines_index ON ? (channelid, lines)", "T", "users");
+  a4statsdb->createtable(a4statsdb, NULL, NULL, "CREATE INDEX users_account_index ON ? (account)", "T", "users");
+  a4statsdb->createtable(a4statsdb, NULL, NULL, "CREATE INDEX users_accountid_index ON ? (accountid)", "T", "users");
+  a4statsdb->createtable(a4statsdb, NULL, NULL, "CREATE INDEX users_channelid_index ON ? (channelid)", "T", "users");
+  a4statsdb->createtable(a4statsdb, NULL, NULL, "CREATE UNIQUE INDEX users_channelid_account_accountid_index ON ? (channelid, account, accountid)", "T", "users");
+  a4statsdb->createtable(a4statsdb, NULL, NULL, "CREATE INDEX users_channelid_lines_index ON ? (channelid, lines)", "T", "users");
 
   a4statsdb->createtable(a4statsdb, NULL, NULL,
     "CREATE TABLE ? (channelid INT, first VARCHAR(128), firstid INT, second VARCHAR(128), secondid INT, seen INT, score INT DEFAULT 1,"
     "FOREIGN KEY (channelid) REFERENCES ? (id) ON DELETE CASCADE)", "TT", "relations", "channels");
 
-  a4statsdb->squery(a4statsdb, "CREATE INDEX relations_channelid_index ON ? (channelid)", "T", "relations");
-  a4statsdb->squery(a4statsdb, "CREATE INDEX relations_score_index ON ? (score)", "T", "relations");
+  a4statsdb->createtable(a4statsdb, NULL, NULL, "CREATE INDEX relations_channelid_index ON ? (channelid)", "T", "relations");
+  a4statsdb->createtable(a4statsdb, NULL, NULL, "CREATE INDEX relations_score_index ON ? (score)", "T", "relations");
  
 
   return 1;
@@ -316,7 +321,7 @@ static int a4stats_lua_add_line(lua_State *ps) {
   channel = lua_tostring(ps, 1);
   hour = lua_tonumber(ps, 2);
 
-  snprintf(query, sizeof(query), "UPDATE ? SET h%d = h%d + 1 WHERE name = ?", hour, hour);
+  snprintf(query, sizeof(query), "UPDATE ? SET h%d = h%d + 1 WHERE " A4STATS_DB_EQ_NOCASE("name", "?"), hour, hour);
 
   a4statsdb->squery(a4statsdb, query, "Ts", "channels", channel);
 
@@ -466,7 +471,7 @@ static int a4stats_lua_enable_channel(lua_State *ps) {
     LUA_RETURN(ps, LUA_FAIL);
 
   a4statsdb->squery(a4statsdb, "INSERT INTO ? (name, timestamp) VALUES (?, ?)", "Tst", "channels", lua_tostring(ps, 1), time(NULL));
-  a4statsdb->squery(a4statsdb, "UPDATE ? SET active = 1, deleted = 0 WHERE name = ?", "Ts", "channels", lua_tostring(ps, 1));
+  a4statsdb->squery(a4statsdb, "UPDATE ? SET active = 1, deleted = 0 WHERE " A4STATS_DB_EQ_NOCASE("name", "?"), "Ts", "channels", lua_tostring(ps, 1));
 
   LUA_RETURN(ps, LUA_OK);
 }
@@ -475,7 +480,7 @@ static int a4stats_lua_disable_channel(lua_State *ps) {
   if (!lua_isstring(ps, 1))
     LUA_RETURN(ps, LUA_FAIL);
 
-  a4statsdb->squery(a4statsdb, "UPDATE ? SET active = 0, deleted = ? WHERE name = ?", "Tts", "channels", time(NULL), lua_tostring(ps, 1));
+  a4statsdb->squery(a4statsdb, "UPDATE ? SET active = 0, deleted = ? WHERE " A4STATS_DB_EQ_NOCASE("name", "?"), "Tts", "channels", time(NULL), lua_tostring(ps, 1));
 
   LUA_RETURN(ps, LUA_OK);
 }
@@ -490,7 +495,7 @@ static int a4stats_lua_set_privacy(lua_State *ps) {
   channel = lua_tostring(ps, 1);
   privacy = lua_tonumber(ps, 2);
 
-  a4statsdb->squery(a4statsdb, "UPDATE ? SET privacy = ? WHERE name = ?", "TUs", "channels", privacy, channel);
+  a4statsdb->squery(a4statsdb, "UPDATE ? SET privacy = ? WHERE " A4STATS_DB_EQ_NOCASE("name", "?"), "TUs", "channels", privacy, channel);
   LUA_RETURN(ps, LUA_OK);
 }
 
